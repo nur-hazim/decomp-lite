@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
@@ -57,19 +57,22 @@ class Pipeline:
     method: Optional[str] = None
     model: Optional[str] = None
     revision: str = ""
+    ghidra_version: str = ""
 
     def spec(self, model: str) -> dict:
         """The recipe with models resolved: stored beside every result, so a
         result made under a different recipe is never mistaken for this one."""
         if self.method:
             return {"method": self.method, "model": model, "input": list(self.input),
-                    "backend_protocol": "decomplite-methods-v1", "revision": self.revision}
+                    "backend_protocol": "decomplite-methods-v1", "revision": self.revision,
+                    **({"ghidra_version": self.ghidra_version} if self.ghidra_version else {})}
         return {
             "input": list(self.input),
             "recovery": [m or model for m in self.recovery],
             "reviewers": [m or model for m in self.reviewers],
             "feedback": self.feedback,
             "iterations": self.iterations,
+            **({"ghidra_version": self.ghidra_version} if self.ghidra_version else {}),
         }
 
 
@@ -234,6 +237,12 @@ def load(path: Path | str) -> BenchmarkConfig:
                          f"e.g. `single_pass: {{input: asm}}`")
     pipelines = tuple(parse_pipeline(p, name, spec, registry)
                       for name, spec in pipes_raw.items())
+    version = raw.get("ghidra_version", "")
+    if not isinstance(version, str) or (version and not re.fullmatch(r"\d+\.\d+\.\d+", version)):
+        raise ValueError(f"{p}: ghidra_version must be a version string such as '12.1.2'")
+    if version:
+        pipelines = tuple(replace(pl, ghidra_version=version) if "pseudoc" in pl.input else pl
+                          for pl in pipelines)
 
     repos_raw = raw.get("repos") or []
     if not repos_raw:

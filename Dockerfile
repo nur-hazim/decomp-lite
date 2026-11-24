@@ -11,7 +11,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     GHIDRA_INSTALL_DIR=/root/opt/ghidra \
-    GHIDRA_VERSION=11.3.1
+    GHIDRA_VERSION=12.1.2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc g++ libc6-dev binutils \

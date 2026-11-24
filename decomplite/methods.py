@@ -111,6 +111,8 @@ def generate(cfg, cell, built, contents, *, force=False):
                "input_kind": "decomplite-stripped-shared-object",
                "binary_sha256": hashlib.sha256(Path(built.stripped).read_bytes()).hexdigest(),
                "channels": {name: contents[name] for name in cell.pipeline.input}}
+    if cell.pipeline.ghidra_version:
+        payload["ghidra_version"] = cell.pipeline.ghidra_version
     if "pseudoc" in contents:
         defs = _function_defs(contents["pseudoc"].encode())
         if len(defs) != 1:
@@ -141,6 +143,7 @@ def generate(cfg, cell, built, contents, *, force=False):
                 "worker_job_id": job_id, "worker_revision": cell.pipeline.revision,
                 "source_key": row["source_key"], "input_binary_sha256": payload["binary_sha256"],
                 "input_kind": payload["input_kind"], "method_trace": answer,
+                "input_ghidra_version": cell.pipeline.ghidra_version,
                 "sample_cflags": list(cell.sample.cflags)}
         if limit > 0 and time.monotonic() - start >= limit:
             raise MethodWorkerUnavailable(f"job {job_id} exceeded the client wait limit; worker progress is retained")

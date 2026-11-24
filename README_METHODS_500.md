@@ -3,6 +3,7 @@
 This experiment uses the **original decomp-lite 500 functions** (257 test_real,
 243 valid_real), x86_64, O0/O1/O2/O3/Os, stripped input: **20,000 cells** across
 eight methods. It does not use the corrected 408-function cohort.
+All five pseudo-C pipelines use Ghidra **12.1.2** for every function/optimization.
 
 | Method | Input | Generation model |
 |---|---|---|
@@ -83,9 +84,31 @@ those rows for review rather than interpreting all failures as model errors.
 
 ## 3. Check server prerequisites
 
-Keep your existing `decomp-lite-exebench` image, with the real system headers
-installed for your 500 functions. The source bind mount supplies the updated
-Python; rebuilding that image is unnecessary for these Python changes.
+Build the Ghidra 12.1.2 image from your existing `decomp-lite-exebench` image.
+This retains the real system headers, compilers, Python dependencies, and other
+ExeBench dependencies already installed there:
+
+```fish
+cd ~/decomp-lite
+git pull --ff-only
+docker build --platform linux/amd64 \
+    --file Dockerfile.ghidra \
+    --build-arg BASE_IMAGE=decomp-lite-exebench \
+    --tag decomp-lite-exebench-ghidra12 .
+```
+
+The installer installs 12.1.2 into a separate directory in the new image and
+activates its bundled Jython extension for the extraction script. The original
+image remains available. The main `Dockerfile` also uses 12.1.2 for fresh builds;
+use `Dockerfile.ghidra` here to inherit your existing system dependencies.
+
+Verify the actual installed version (not just an environment variable):
+
+```fish
+docker run --platform linux/amd64 --rm -v "$PWD":/work \
+    decomp-lite-exebench-ghidra12 python3 -c \
+    'from decomplite.representations import require_ghidra_version; print(require_ghidra_version("12.1.2"))'
+```
 
 The existing `hazim-ubuntu` image needs its main `/opt/venv`, isolated
 `/opt/degpt-venv` and `/opt/fidelitygpt-venv`, native compilers, and host
@@ -115,10 +138,11 @@ Do not run another experiment on those same model services concurrently.
 ```fish
 cd ~/decomp-lite
 fish scripts/start_method_worker.fish
-fish scripts/run_methods_500.fish
+env LITE_IMAGE=decomp-lite-exebench-ghidra12 fish scripts/run_methods_500.fish
 ```
 
-Run this in tmux. The run script first builds and checks every required input,
+Run this in tmux. The run script defaults to `decomp-lite-exebench-ghidra12` and
+first builds and checks every required input,
 then switches model deployments sequentially on GPU 1: LLM4Decompile Ghidra,
 Gemma (three methods), SK2 (both checkpoints), LLM4Decompile ASM, SCCDec, Nova.
 It checks the actual advertised model IDs, required input channels, original
@@ -126,11 +150,28 @@ source hashes, isolated environments, and embedding endpoint before generation.
 Initial model downloads/builds can take substantial time. No GPU throughput
 estimate is implied by the local integration tests.
 
+On the first upgraded run, all **2,500 pseudo-C inputs** are regenerated,
+including the 2,498 previously extracted with 11.3.1. Existing binaries and
+assembly are reused. No `--force`, cache deletion, or model calls are needed for
+this refresh. It will repeat the Ghidra extraction work, so allow preparation
+time comparable to the previous extraction run. A version/script fingerprint
+in each channel manifest prevents reuse of old pseudo-C; completed 12.1.2 inputs
+are reused after interruption. The build must report `pseudoc available for
+2500/2500` before the runner starts any model server. A wrong installed Ghidra
+version stops immediately, before generation. The eligibility report and
+generation specs identify version 12.1.2.
+
+The HSLtoRGB O2/O3 failures were reproduced with 11.3.1 (`Overlapping input
+varnodes`); both extracted successfully with 12.1.2 on the unchanged local
+binaries. This verifies extraction, not semantic correctness of the pseudo-C.
+Full Ghidra stdout/stderr and launch metadata are now retained alongside each
+channel manifest under `data/channels/<repo>/x86_64/<opt>/<function>/`.
+
 The first Fidelity cell initializes shared retrieval resources at one worker;
 the remaining work uses four concurrent cells. To lower resource pressure:
 
 ```fish
-env RUN_WORKERS=1 METHOD_WORKERS=1 fish scripts/run_methods_500.fish
+env LITE_IMAGE=decomp-lite-exebench-ghidra12 RUN_WORKERS=1 METHOD_WORKERS=1 fish scripts/run_methods_500.fish
 ```
 
 `METHOD_WORKERS` applies when starting a new worker. The startup script reuses a
@@ -170,7 +211,7 @@ For a single method after starting its appropriate model server:
 
 ```fish
 docker run --platform linux/amd64 --rm --network host \
-    -v "$HOME/decomp-lite":/work decomp-lite-exebench \
+    -v "$HOME/decomp-lite":/work decomp-lite-exebench-ghidra12 \
     python3 -m decomplite benchmark --config benchmark_methods_500.yaml \
     --phase decompile --filter-pipeline llm4decompile_asm --workers 4
 ```
@@ -179,7 +220,7 @@ Evaluate all saved method answers later without model servers:
 
 ```fish
 docker run --platform linux/amd64 --rm --network host \
-    -v "$HOME/decomp-lite":/work decomp-lite-exebench \
+    -v "$HOME/decomp-lite":/work decomp-lite-exebench-ghidra12 \
     python3 -m decomplite benchmark --config benchmark_methods_500.yaml \
     --phase eval --workers 4
 ```

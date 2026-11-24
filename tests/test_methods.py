@@ -180,6 +180,27 @@ def test_offline_eval_does_not_contact_method_or_model_servers(method_case, monk
     methods.prepare(cfg, online=False)
 
 
+def test_wrong_ghidra_version_stops_before_build_or_model_calls(method_case, monkeypatch):
+    cfg, sample, _ = method_case
+    pipeline = replace(cfg.pipelines[0], ghidra_version="12.1.2", revision="test")
+    monkeypatch.setattr(bench.R, "pseudoc_provenance", lambda: {"ghidra_version": "11.3.1"})
+    monkeypatch.setattr(B, "build", lambda *a, **kw: pytest.fail("built before validating Ghidra"))
+    monkeypatch.setattr(methods, "_request", lambda *a, **kw: pytest.fail("contacted model worker"))
+    with pytest.raises(B.ToolchainError, match="requires Ghidra 12.1.2, found 11.3.1"):
+        bench.decompile_cell(cfg, bench.Cell(sample, "O0", "m", pipeline), force=False)
+
+
+def test_ghidra_version_change_does_not_reuse_old_generated_answer(method_case, method_server):
+    cfg, sample, _ = method_case
+    cfg = methods.prepare(cfg, online=True, selected={"degpt"})
+    cell = bench.Cell(sample, "O0", "m", cfg.pipelines[0])
+    assert bench.decompile_cell(cfg, cell, force=False) == "ok"
+    updated = bench.Cell(sample, "O0", "m", replace(cell.pipeline, ghidra_version="12.1.2"))
+    assert not updated.is_current()
+    assert bench.decompile_cell(cfg, updated, force=False) == "stale"
+    assert len([item for item in method_server if item[0] == "/jobs"]) == 1
+
+
 @pytest.mark.skipif(not __import__("shutil").which("gcc"), reason="requires GCC")
 def test_strict_native_harness_rejects_crash_after_valid_output(tmp_path):
     source = tmp_path / "f.c"

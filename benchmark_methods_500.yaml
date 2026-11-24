@@ -7,6 +7,7 @@ models_file: models_methods.yaml
 functions_from: functions_methods_500.yaml
 identity_manifest: tools/methods_500/selection.json
 evaluation_protocol: strict-v1
+ghidra_version: "12.1.2"
 pipelines:
   llm4decompile_ghidra:
     method: llm4decompile_ghidra

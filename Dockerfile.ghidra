@@ -1,0 +1,11 @@
+# Upgrade the existing ExeBench image, retaining its compilers/system headers.
+# docker build -f Dockerfile.ghidra --build-arg BASE_IMAGE=decomp-lite-exebench \
+#     -t decomp-lite-exebench-ghidra12 .
+ARG BASE_IMAGE=decomp-lite-exebench
+FROM ${BASE_IMAGE}
+USER root
+ENV GHIDRA_VERSION=12.1.2 \
+    GHIDRA_INSTALL_DIR=/opt/ghidra-12.1.2
+COPY scripts/install_ghidra.sh /tmp/install_ghidra.sh
+RUN bash /tmp/install_ghidra.sh "${GHIDRA_VERSION}" && rm /tmp/install_ghidra.sh
+WORKDIR /work

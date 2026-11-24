@@ -142,6 +142,10 @@ def _first_line(text: str, fallback: str = "?") -> str:
 def phase_build(cfg: BenchmarkConfig, samples, opts, cells, *, force: bool, workers: int) -> None:
     """Compile every (sample, opt) and cache the inputs the pipelines need."""
     channels = sorted({c for cell in cells for c in cell.pipeline.input})
+    versions = {cell.pipeline.ghidra_version for cell in cells if cell.pipeline.ghidra_version}
+    for version in versions:
+        R.require_ghidra_version(version)
+    ghidra_version = next(iter(versions), "")
     named_methods = any(cell.pipeline.method for cell in cells)
     if named_methods:
         from decomplite.methods import identity
@@ -176,10 +180,11 @@ def phase_build(cfg: BenchmarkConfig, samples, opts, cells, *, force: bool, work
         for sample, opt, built, got in results:
             errors = [built.error] if not built.ok else [R.channel_error(built, c) for c in channels if not got.get(c)]
             rows.append({"repo": sample.repo, "function": sample.name, "opt": opt,
+                         "ghidra_version": ghidra_version,
                          "eligible": int(built.ok and all(got.get(c) for c in channels)),
                          "error": "; ".join(errors)})
         with path.open("w", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=["repo", "function", "opt", "eligible", "error"])
+            writer = csv.DictWriter(handle, fieldnames=["repo", "function", "opt", "ghidra_version", "eligible", "error"])
             writer.writeheader()
             writer.writerows(rows)
         failed = sum(not row["eligible"] for row in rows)
@@ -282,6 +287,8 @@ def _candidates(texts: list[str]) -> str:
 def run_pipeline(cfg: BenchmarkConfig, cell: Cell, *, force: bool = False) -> tuple[str, dict]:
     """Run one cell's recipe. Returns (answer, record)."""
     pl, spec = cell.pipeline, cell.pipeline.spec(cell.model)
+    if pl.ghidra_version:
+        R.require_ghidra_version(pl.ghidra_version)
     b = B.build(cell.sample, cell.opt)
     if not b.ok:
         raise RuntimeError(f"build failed: {b.error}")
@@ -433,6 +440,7 @@ def phase_eval(cfg: BenchmarkConfig, cells, *, workers: int) -> Path:
             "stopped": "",
             "evaluation_protocol": cfg.evaluation_protocol,
             "generation_revision": meta.get("worker_revision", ""),
+            "ghidra_version": cell.pipeline.ghidra_version,
         }
         err = b.error or meta.get("error") or ""
         if generated:

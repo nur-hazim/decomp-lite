@@ -9,6 +9,7 @@ text a prompt was built from can be inspected (and is not recomputed).
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import signal
@@ -16,7 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from decomplite.build import Build, lock_for, toolchain, write_atomic
+from decomplite.build import Build, ToolchainError, lock_for, toolchain, write_atomic
 from decomplite.config import DATA_DIR, GHIDRA_SCRIPTS_DIR
 
 _FILENAME = {"asm": "asm.txt", "pseudoc": "pseudoc.c"}
@@ -80,7 +81,31 @@ def _ghidra_root() -> Path:
     return Path(root)
 
 
-def _run_headless(cmd: list[str]) -> subprocess.CompletedProcess:
+def pseudoc_provenance() -> dict:
+    """Identify the actual installed release and the script producing the C."""
+    props = _ghidra_root() / "Ghidra/application.properties"
+    values = dict(line.split("=", 1) for line in props.read_text().splitlines()
+                  if "=" in line and not line.startswith("#"))
+    version = values.get("application.version", "").strip()
+    if not version:
+        raise RuntimeError(f"Ghidra version missing in {props}")
+    script = GHIDRA_SCRIPTS_DIR / "dump_function_by_addr.py"
+    return {"ghidra_version": version, "ghidra_revision": values.get("application.revision.ghidra", ""),
+            "post_script_sha256": hashlib.sha256(script.read_bytes().replace(b"\r\n", b"\n")).hexdigest()}
+
+
+def require_ghidra_version(expected: str) -> str:
+    try:
+        observed = pseudoc_provenance()["ghidra_version"]
+    except (OSError, RuntimeError) as exc:
+        raise ToolchainError(f"cannot verify required Ghidra {expected}: {exc}") from exc
+    if observed != expected:
+        raise ToolchainError(f"this experiment requires Ghidra {expected}, found {observed}; "
+                             "rebuild/use decomp-lite-exebench-ghidra12")
+    return observed
+
+
+def _run_headless(cmd: list[str], *, log_dir: Path | None = None) -> subprocess.CompletedProcess:
     """Run analyzeHeadless with a timeout that takes down the whole process
     tree, not just the launcher script."""
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -92,9 +117,31 @@ def _run_headless(cmd: list[str]) -> subprocess.CompletedProcess:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             proc.kill()
-        proc.communicate()
-        raise RuntimeError(f"Ghidra timed out after {_GHIDRA_TIMEOUT_S}s") from None
+        stdout, stderr = proc.communicate()
+        _save_headless_logs(log_dir, cmd, proc.returncode, stdout, stderr)
+        raise RuntimeError(f"Ghidra timed out after {_GHIDRA_TIMEOUT_S}s; logs: {log_dir}") from None
+    _save_headless_logs(log_dir, cmd, proc.returncode, stdout, stderr)
     return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+
+
+def _save_headless_logs(directory, cmd, returncode, stdout, stderr):
+    if directory is None:
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    write_atomic(directory / "ghidra.stdout.log", stdout or "")
+    write_atomic(directory / "ghidra.stderr.log", stderr or "")
+    write_atomic(directory / "ghidra.run.json", json.dumps(
+        {"command": cmd, "returncode": returncode}, indent=2))
+
+
+def _headless_failure(res):
+    lines = ((res.stderr or "") + "\n" + (res.stdout or "")).splitlines()
+    failures = [line.strip() for line in lines
+                if "[dump_function_by_addr] FAIL:" in line or line.strip().startswith("Low-level Error:")]
+    if not failures:
+        failures = [line.strip() for line in lines
+                    if re.search(r"\bERROR\b|Exception:|Error:", line)]
+    return "; ".join(failures[:3])[:1200] or "post-script did not write pseudo-C"
 
 
 def extract_pseudoc(b: Build) -> str:
@@ -113,10 +160,10 @@ def extract_pseudoc(b: Build) -> str:
             "-postScript", "dump_function_by_addr.py",
             b.section, "0x%x" % b.offset, str(out),
             "-deleteProject",
-        ])
+        ], log_dir=cache_dir(b))
         if not out.exists() or out.stat().st_size == 0:
-            tail = ((res.stderr or "") + "\n" + (res.stdout or ""))[-3000:]
-            raise RuntimeError(f"Ghidra produced no output. analyzeHeadless tail:\n{tail}")
+            raise RuntimeError(f"Ghidra produced no output (exit {res.returncode}): "
+                               f"{_headless_failure(res)}; full logs: {cache_dir(b)}")
         return out.read_text(errors="replace")
 
 
@@ -145,17 +192,23 @@ def _materialize(b: Build, channels, force: bool) -> dict[str, str]:
     for ch in channels:
         path = cd / _FILENAME[ch]
         meta = manifest["channels"].get(ch) or {}
-        if not force and meta.get("available") and path.exists():
-            out[ch] = path.read_text()
-            continue
         try:
+            provenance = pseudoc_provenance() if ch == "pseudoc" else None
+            if (not force and meta.get("available") and path.exists()
+                    and (ch != "pseudoc" or meta.get("provenance") == provenance)):
+                out[ch] = path.read_text()
+                continue
             text = _EXTRACTORS[ch](b)
+            if not text.strip():
+                raise RuntimeError(f"{ch} extractor returned empty text")
             write_atomic(path, text)
             manifest["channels"][ch] = {"available": True}
+            if provenance is not None:
+                manifest["channels"][ch]["provenance"] = provenance
             out[ch] = text
         except Exception as e:
             path.unlink(missing_ok=True)
-            manifest["channels"][ch] = {"available": False, "error": str(e)[-1500:]}
+            manifest["channels"][ch] = {"available": False, "error": str(e)}
             out[ch] = ""
     write_atomic(manifest_path, json.dumps(manifest, indent=1))
     return out
