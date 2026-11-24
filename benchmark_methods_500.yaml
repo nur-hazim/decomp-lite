@@ -1,0 +1,36 @@
+# Existing, ORIGINAL selected 500. Stripped shared-object inputs from decomp-lite.
+archs: [x86_64]
+opts: [O0, O1, O2, O3, Os]
+compilers: [gcc]
+model: gemma4-31b-it-vllm
+models_file: models_methods.yaml
+functions_from: functions_methods_500.yaml
+identity_manifest: tools/methods_500/selection.json
+evaluation_protocol: strict-v1
+pipelines:
+  llm4decompile_ghidra:
+    method: llm4decompile_ghidra
+    model: llm4decompile-22b-v2-vllm
+  degpt:
+    method: degpt
+    model: gemma4-31b-it-vllm
+  fidelitygpt:
+    method: fidelitygpt
+    model: gemma4-31b-it-vllm
+  agent4decompile_author_xarch:
+    method: agent4decompile_author_xarch
+    model: gemma4-31b-it-vllm
+  sk2decompile:
+    method: sk2decompile
+    model: sk2decompile-struct-vllm
+  llm4decompile_asm:
+    method: llm4decompile_asm
+    model: llm4decompile-6.7b-v1.5-vllm
+  sccdec_author_xarch:
+    method: sccdec_author_xarch
+    model: sccdec-lora-paper-vllm
+  nova:
+    method: nova
+    model: nova-6.7b-bcr
+report:
+  out_dir: reports/methods_500_strict_v1

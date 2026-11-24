@@ -192,7 +192,9 @@ def _build(sample: Sample, opt: str, force: bool) -> Build:
         cached = json.loads(meta_path.read_text())
         if cached.pop("stamp", None) == stamp:
             b = Build(**cached)
-            if not b.ok or stripped.exists():
+            # Retry a failed compile after external headers/tooling are fixed.
+            # Successful builds still keep their existing warm-cache behavior.
+            if b.ok and stripped.exists():
                 return b
 
     b = Build(repo=sample.repo, name=sample.name, opt=opt, ok=False)

@@ -14,6 +14,7 @@ import gzip
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -64,9 +65,16 @@ def _declared_name(node, data: bytes) -> Optional[str]:
     return None
 
 
+def _mask_line_markers(data: bytes) -> bytes:
+    # GCC line markers otherwise hide following definitions from tree-sitter.
+    # Keep every byte offset intact when extracting the original source spans.
+    return re.sub(rb"(?m)^[ \t]*#[ \t]*(?:line[ \t]+)?\d+[^\r\n]*",
+                  lambda m: b" " * len(m.group()), data)
+
+
 def _function_defs(data: bytes) -> list[tuple[str, int, int]]:
     """(name, start_byte, end_byte) of every function definition."""
-    out, stack = [], [_parser().parse(data).root_node]
+    out, stack = [], [_parser().parse(_mask_line_markers(data)).root_node]
     while stack:
         n = stack.pop()
         if n.type == "function_definition":
@@ -92,7 +100,7 @@ def rename_function(text: str, target: str) -> str:
     if len(defs) != 1 or defs[0][0] == target:
         return text
     old = defs[0][0].encode()
-    spans, stack = [], [_parser().parse(data).root_node]
+    spans, stack = [], [_parser().parse(_mask_line_markers(data)).root_node]
     while stack:
         n = stack.pop()
         if n.type == "identifier" and data[n.start_byte:n.end_byte] == old:
@@ -146,6 +154,29 @@ def _diff_io(observed, expected) -> bool:
     return observed == expected
 
 
+def _strict_diff_io(observed, expected) -> bool:
+    """Complete JSON structure, finite numbers; retain the legacy float tolerance."""
+    if isinstance(observed, dict) or isinstance(expected, dict):
+        return (isinstance(observed, dict) and isinstance(expected, dict)
+                and observed.keys() == expected.keys()
+                and all(_strict_diff_io(observed[k], expected[k]) for k in expected))
+    if isinstance(observed, list) or isinstance(expected, list):
+        return (isinstance(observed, list) and isinstance(expected, list)
+                and len(observed) == len(expected)
+                and all(_strict_diff_io(a, b) for a, b in zip(observed, expected)))
+    if isinstance(observed, bool) or isinstance(expected, bool):
+        return type(observed) is type(expected) and observed == expected
+    if isinstance(observed, (float, int)) and isinstance(expected, (float, int)):
+        if isinstance(observed, int) and isinstance(expected, int):
+            return observed == expected
+        try:
+            return (math.isfinite(observed) and math.isfinite(expected)
+                    and math.isclose(observed, expected, rel_tol=1e-3))
+        except (OverflowError, ValueError):
+            return False
+    return type(observed) is type(expected) and observed == expected
+
+
 def _io_dict(side) -> dict:
     """An IO-pair side as a plain {var: value} dict (the Hugging Face form of
     ExeBench stores a list of {var, value} instead)."""
@@ -170,7 +201,7 @@ def _run(cmd, cwd: Path, timeout: float) -> Optional[int]:
         return None
 
 
-def _run_tests(binp: Path, work: Path, io_path: Optional[Path]) -> tuple[int, int, str]:
+def _run_tests(binp: Path, work: Path, io_path: Optional[Path], *, protocol="legacy") -> tuple[int, int, str]:
     """(passed, total, note). Every test case runs; one failure does not stop
     the rest, so passed/total is a true pass rate."""
     if io_path is None:
@@ -188,13 +219,17 @@ def _run_tests(binp: Path, work: Path, io_path: Optional[Path]) -> tuple[int, in
         else:
             inj.write_text(json.dumps(_io_dict(pair.get("input"))))
             outj.unlink(missing_ok=True)
-            if _run([str(binp), str(inj), str(outj)], work, IO_TIMEOUT_S) is None:
+            rc = _run([str(binp), str(inj), str(outj)], work, IO_TIMEOUT_S)
+            if rc is None:
                 why = "timeout"
+            elif protocol == "strict-v1" and rc != 0:
+                why = f"exit {rc}"
             elif not outj.exists():
                 why = "no output produced"
             else:
                 try:
-                    ok = _diff_io(json.loads(outj.read_text()), _io_dict(pair.get("output")))
+                    compare = _strict_diff_io if protocol == "strict-v1" else _diff_io
+                    ok = compare(json.loads(outj.read_text()), _io_dict(pair.get("output")))
                 except json.JSONDecodeError:
                     ok = False
                 passed += int(ok)
@@ -204,7 +239,7 @@ def _run_tests(binp: Path, work: Path, io_path: Optional[Path]) -> tuple[int, in
     return passed, len(pairs), first
 
 
-def harness(sample: Sample, text: str, function: str, *, run: bool = True) -> dict:
+def harness(sample: Sample, text: str, function: str, *, run: bool = True, protocol="legacy") -> dict:
     """Put the answer in place of the original function and build the sample's
     test harness around it (RCI); then, with `run`, execute the tests (RE).
 
@@ -212,6 +247,8 @@ def harness(sample: Sample, text: str, function: str, *, run: bool = True) -> di
     otherwise (no harness, nothing to run on, ...), in which case the metrics
     are None rather than 0.
     """
+    if protocol not in ("legacy", "strict-v1"):
+        raise ValueError(f"unknown evaluation protocol {protocol!r}")
     out = {"compile_ok": None, "compile_error": "", "test_passed": None,
            "test_pass": None, "test_total": None, "test_output": "", "status": "ok"}
     if sample.test_path is None:
@@ -259,7 +296,7 @@ def harness(sample: Sample, text: str, function: str, *, run: bool = True) -> di
             return out
         if not tc.can_execute():
             return dict(out, status="built, but this machine cannot run x86-64 Linux binaries")
-        passed, total, note = _run_tests(binp, work, sample.io_path)
+        passed, total, note = _run_tests(binp, work, sample.io_path, protocol=protocol)
         out.update(test_pass=passed, test_total=total,
                    test_passed=int(total > 0 and passed == total),
                    test_output=f"{passed}/{total} passed" + (f"; {note}" if note else ""))

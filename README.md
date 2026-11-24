@@ -2,6 +2,9 @@
 
 A playground for **LLM-assisted decompilation with configurable pipelines**.
 
+For the original selected 500-function experiment with all eight decompbench
+methods and versioned strict scoring, see [README_METHODS_500.md](README_METHODS_500.md).
+
 - **Pipelines are recipes you write**, not code: `input`, `recovery`, `reviewers`, `feedback`, `iterations`. The simplest one is a single LLM call.
 - **Two inputs**: assembly (`objdump`) and pseudo-C (Ghidra), or both.
 - **x86-64, every optimization level**: `O0 O1 O2 O3 Os`.

@@ -1,0 +1,87 @@
+{
+  "llm4decompile-6.7b-v1.5-vllm": {
+    "provider": "vllm",
+    "model": "llm4decompile-6.7b-v1.5",
+    "completion": true,
+    "max_tokens": 8192,
+    "num_ctx": 32768,
+    "temperature": 0,
+    "repeat_penalty": 1.0,
+    "pricing": {
+      "input_per_mtok": 0.0,
+      "output_per_mtok": 0.0
+    }
+  },
+  "llm4decompile-22b-v2-vllm": {
+    "provider": "vllm",
+    "model": "llm4decompile-22b-v2",
+    "completion": true,
+    "max_tokens": 8192,
+    "num_ctx": 32768,
+    "temperature": 0,
+    "repeat_penalty": 1.0,
+    "pricing": {
+      "input_per_mtok": 0.0,
+      "output_per_mtok": 0.0
+    }
+  },
+  "nova-6.7b-bcr": {
+    "provider": "transformers",
+    "model": "nova-6.7b-bcr",
+    "hf_repo": "lt-asset/nova-6.7b-bcr",
+    "dtype": "bfloat16",
+    "max_tokens": 2048,
+    "num_ctx": 16384,
+    "pricing": {
+      "input_per_mtok": 0.0,
+      "output_per_mtok": 0.0
+    }
+  },
+  "sccdec-lora-paper-vllm": {
+    "provider": "vllm",
+    "model": "sccdec-lora-paper-vllm:sccdec",
+    "max_tokens": 8192,
+    "num_ctx": 32768,
+    "temperature": 0,
+    "repeat_penalty": 1.0,
+    "pricing": {
+      "input_per_mtok": 0.0,
+      "output_per_mtok": 0.0
+    }
+  },
+  "gemma4-31b-it-vllm": {
+    "provider": "vllm",
+    "model": "gemma4-31b-it",
+    "temperature": 0.1,
+    "num_ctx": 32768,
+    "pricing": {
+      "input_per_mtok": 0.0,
+      "output_per_mtok": 0.0
+    }
+  },
+  "sk2decompile-struct-vllm": {
+    "provider": "vllm",
+    "model": "sk2decompile-struct-6.7b",
+    "ident_model_key": "sk2decompile-ident-vllm",
+    "completion": true,
+    "max_tokens": 8192,
+    "num_ctx": 32768,
+    "temperature": 0,
+    "pricing": {
+      "input_per_mtok": 0.0,
+      "output_per_mtok": 0.0
+    }
+  },
+  "sk2decompile-ident-vllm": {
+    "provider": "vllm",
+    "model": "sk2decompile-ident-6.7",
+    "completion": true,
+    "max_tokens": 8192,
+    "num_ctx": 32768,
+    "temperature": 0,
+    "pricing": {
+      "input_per_mtok": 0.0,
+      "output_per_mtok": 0.0
+    }
+  }
+}

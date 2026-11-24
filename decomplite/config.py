@@ -35,6 +35,14 @@ FEEDBACK = {
 }
 MAX_ITERATIONS = 10
 _NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+METHOD_INPUTS = {
+    "llm4decompile_asm": ("asm",), "nova": ("asm",),
+    "sccdec_author_xarch": ("asm",),
+    "llm4decompile_ghidra": ("pseudoc",), "degpt": ("pseudoc",),
+    "fidelitygpt": ("pseudoc",), "agent4decompile_author_xarch": ("pseudoc",),
+    "sk2decompile": ("pseudoc",),
+}
+EVALUATION_PROTOCOLS = ("legacy", "strict-v1")
 
 
 @dataclass(frozen=True)
@@ -46,10 +54,16 @@ class Pipeline:
     reviewers: tuple[Optional[str], ...]      # None = the cell's `model:`
     feedback: str
     iterations: int
+    method: Optional[str] = None
+    model: Optional[str] = None
+    revision: str = ""
 
     def spec(self, model: str) -> dict:
         """The recipe with models resolved: stored beside every result, so a
         result made under a different recipe is never mistaken for this one."""
+        if self.method:
+            return {"method": self.method, "model": model, "input": list(self.input),
+                    "backend_protocol": "decomplite-methods-v1", "revision": self.revision}
         return {
             "input": list(self.input),
             "recovery": [m or model for m in self.recovery],
@@ -82,6 +96,17 @@ def parse_pipeline(p: Path, name: str, raw, registry: dict) -> Pipeline:
         raise ValueError(f"{where}: the name must be filename-safe")
     if not isinstance(raw, dict):
         raise ValueError(f"{where} must be a mapping")
+    if "method" in raw:
+        unknown = set(raw) - {"method", "model"}
+        if unknown:
+            raise ValueError(f"{where}: named methods do not accept recipe keys {sorted(unknown)}")
+        method, model = raw["method"], raw.get("model")
+        if method not in METHOD_INPUTS:
+            raise ValueError(f"{where}: unknown method {method!r}")
+        if not model or model not in registry:
+            raise ValueError(f"{where}: named method requires a known `model`")
+        return Pipeline(str(name), METHOD_INPUTS[method], (model,), (), "none", 1,
+                        method=method, model=model)
     unknown = set(raw) - {"input", "recovery", "reviewers", "feedback", "iterations"}
     if unknown:
         raise ValueError(f"{where}: unknown key(s) {sorted(unknown)}")
@@ -133,6 +158,8 @@ class BenchmarkConfig:
     report_out_dir: Path
     model_registry: dict = field(compare=False, default_factory=dict)
     source_path: Optional[Path] = field(default=None, compare=False)
+    evaluation_protocol: str = "legacy"
+    identity_manifest: Optional[Path] = None
 
 
 def load_dotenv(path: Path) -> None:
@@ -226,9 +253,16 @@ def load(path: Path | str) -> BenchmarkConfig:
         ))
 
     report = raw.get("report") or {}
+    evaluation_protocol = raw.get("evaluation_protocol", "legacy")
+    if evaluation_protocol not in EVALUATION_PROTOCOLS:
+        raise ValueError(f"{p}: unknown evaluation_protocol {evaluation_protocol!r}")
+    identity_manifest = _find(p.parent, raw["identity_manifest"]) if raw.get("identity_manifest") else None
+    if any(pl.method for pl in pipelines) and (not identity_manifest or not identity_manifest.is_file()):
+        raise ValueError(f"{p}: named methods require an existing identity_manifest")
     return BenchmarkConfig(
         archs=archs, opts=opts, compilers=compilers, pipelines=pipelines,
         models=models, repos=tuple(repos),
         report_out_dir=ROOT / (report.get("out_dir") or "reports"),
-        model_registry=registry, source_path=p,
+        model_registry=registry, source_path=p, evaluation_protocol=evaluation_protocol,
+        identity_manifest=identity_manifest,
     )

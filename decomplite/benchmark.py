@@ -16,6 +16,7 @@ iteration -- is a single LLM call.
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import re
 import threading
@@ -70,8 +71,18 @@ class Cell:
     def is_current(self) -> bool:
         """An answer exists AND was made by this recipe (not by an earlier
         definition of a pipeline with the same name)."""
-        return (self.out_path.exists()
-                and self.meta().get("spec") == self.pipeline.spec(self.model))
+        meta = self.meta()
+        expected = self.pipeline.spec(self.model)
+        if self.pipeline.method and not self.pipeline.revision:
+            # An offline evaluator can score a recorded method revision without
+            # needing the method/model servers online.
+            expected["revision"] = meta.get("spec", {}).get("revision", "")
+        current = self.out_path.exists() and meta.get("spec") == expected
+        if current and self.pipeline.method:
+            current = (meta.get("source_sha256") == hashlib.sha256(self.sample.source_path.read_bytes()).hexdigest()
+                       and meta.get("output_sha256") == hashlib.sha256(self.out_path.read_bytes()).hexdigest()
+                       and meta.get("sample_cflags") == list(self.sample.cflags))
+        return current
 
     def label(self) -> str:
         return f"{self.sample.repo}/{self.sample.name} {self.opt} {self.model} {self.pipeline.name}"
@@ -89,27 +100,35 @@ def resolve(cfg: BenchmarkConfig, filters: dict) -> tuple[list[Sample], list[str
         if f.get("repo") and sel.name not in f["repo"]:
             continue
         chosen, missing = select(sel, load_dataset(sel))
+        if missing and any(p.method for p in cfg.pipelines):
+            raise ValueError(f"{sel.name}: {len(missing)} selected functions are missing: {', '.join(missing[:8])}")
         for fn in missing:
             print(f"  [skip] {sel.name}/{fn}: not in the dataset")
         samples += [s for s in chosen if not f.get("fn") or s.name in f["fn"]]
     opts = [o for o in cfg.opts if not f.get("opt") or o in f["opt"]]
-    cells = [
-        Cell(s, o, m, pl)
-        for s in samples for o in opts
-        for m in cfg.models if not f.get("model") or m in f["model"]
-        for pl in cfg.pipelines if not f.get("pipeline") or pl.name in f["pipeline"]
-    ]
+    cells = [Cell(s, o, m, pl) for s in samples for o in opts
+             for pl in cfg.pipelines if not f.get("pipeline") or pl.name in f["pipeline"]
+             for m in ((pl.model,) if pl.method else cfg.models)
+             if not f.get("model") or m in f["model"]]
     return samples, opts, cells
 
 
 def _map(fn, items, workers: int, what: str, log_every: int = 25) -> list:
     """Run `fn` over `items` on a thread pool, printing progress."""
     out, t0 = [], time.time()
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+    pool = ThreadPoolExecutor(max_workers=max(1, workers))
+    try:
         for i, res in enumerate(pool.map(fn, items), 1):
             out.append(res)
             if i % log_every == 0 or i == len(items):
                 print(f"  {what}: {i}/{len(items)}  ({time.time() - t0:.0f}s)")
+    except BaseException:
+        from decomplite.methods import cancel_waits
+        cancel_waits()
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        pool.shutdown(wait=True)
     return out
 
 
@@ -123,6 +142,11 @@ def _first_line(text: str, fallback: str = "?") -> str:
 def phase_build(cfg: BenchmarkConfig, samples, opts, cells, *, force: bool, workers: int) -> None:
     """Compile every (sample, opt) and cache the inputs the pipelines need."""
     channels = sorted({c for cell in cells for c in cell.pipeline.input})
+    named_methods = any(cell.pipeline.method for cell in cells)
+    if named_methods:
+        from decomplite.methods import identity
+        for sample in samples:
+            identity(cfg, sample)
     B.toolchain()                         # fail before the pool, with one message
 
     def one(job):
@@ -145,6 +169,22 @@ def phase_build(cfg: BenchmarkConfig, samples, opts, cells, *, force: bool, work
             if not got.get(ch):
                 print(f"  [no {ch}] {sample.repo}/{sample.name} {opt}: "
                       f"{_first_line(R.channel_error(b, ch))}")
+    if named_methods:
+        cfg.report_out_dir.mkdir(parents=True, exist_ok=True)
+        path = cfg.report_out_dir / "input_eligibility.csv"
+        rows = []
+        for sample, opt, built, got in results:
+            errors = [built.error] if not built.ok else [R.channel_error(built, c) for c in channels if not got.get(c)]
+            rows.append({"repo": sample.repo, "function": sample.name, "opt": opt,
+                         "eligible": int(built.ok and all(got.get(c) for c in channels)),
+                         "error": "; ".join(errors)})
+        with path.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["repo", "function", "opt", "eligible", "error"])
+            writer.writeheader()
+            writer.writerows(rows)
+        failed = sum(not row["eligible"] for row in rows)
+        if failed:
+            raise B.ToolchainError(f"{failed}/{len(rows)} input pairs unavailable; no method calls started. See {path}")
 
 
 # --- prompts -----------------------------------------------------------------
@@ -251,6 +291,10 @@ def run_pipeline(cfg: BenchmarkConfig, cell: Cell, *, force: bool = False) -> tu
         raise RuntimeError("no input available: "
                            + "; ".join(R.channel_error(b, c) for c in pl.input))
 
+    if pl.method:
+        from decomplite.methods import generate
+        return generate(cfg, cell, b, contents, force=force)
+
     turns: list[dict] = []
     verdicts: dict[str, dict] = {}
 
@@ -306,22 +350,29 @@ def decompile_cell(cfg: BenchmarkConfig, cell: Cell, *, force: bool) -> str:
         if cell.out_path.exists() and not force:
             # An answer under this pipeline NAME made by a different RECIPE is
             # neither reused nor silently overwritten.
-            return "cached" if cell.is_current() else "stale"
+            if cell.is_current():
+                return "cached"
+            if not cell.pipeline.method or cell.meta().get("status") == "ok":
+                return "stale"
         cell.out_path.parent.mkdir(parents=True, exist_ok=True)
         meta = {"repo": cell.sample.repo, "function": cell.sample.name, "arch": "x86_64",
                 "opt": cell.opt, "model": cell.model, "pipeline": cell.pipeline.name,
                 "spec": cell.pipeline.spec(cell.model)}
         try:
             text, record = run_pipeline(cfg, cell, force=force)
-            cell.out_path.write_text(text.rstrip("\n") + "\n")
+            B.write_atomic(cell.out_path, text.rstrip("\n") + "\n")
             turns = record["turns"]
+            meta.update(record)
             meta.update(
-                status="ok", **record, llm_calls=len(turns),
-                latency_s=round(sum(t["latency_s"] for t in turns), 2),
-                input_tokens=sum(t["input_tokens"] for t in turns),
-                output_tokens=sum(t["output_tokens"] for t in turns),
+                status="ok", llm_calls=record.get("llm_calls", len(turns)),
+                latency_s=record.get("latency_s", round(sum(t["latency_s"] for t in turns), 2)),
+                input_tokens=record.get("input_tokens", sum(t["input_tokens"] for t in turns)),
+                output_tokens=record.get("output_tokens", sum(t["output_tokens"] for t in turns)),
                 finished_at=int(time.time()),
             )
+            if cell.pipeline.method:
+                meta.update(source_sha256=hashlib.sha256(cell.sample.source_path.read_bytes()).hexdigest(),
+                            output_sha256=hashlib.sha256(cell.out_path.read_bytes()).hexdigest())
             status = "ok"
         except B.ToolchainError:
             raise
@@ -331,7 +382,7 @@ def decompile_cell(cfg: BenchmarkConfig, cell: Cell, *, force: bool) -> str:
             cell.out_path.unlink(missing_ok=True)
             meta.update(status="error", error=str(e)[-3000:])
             status = f"error: {_first_line(str(e), type(e).__name__)}"
-        cell.meta_path.write_text(json.dumps(meta, indent=1))
+        B.write_atomic(cell.meta_path, json.dumps(meta, indent=1))
         return status
 
 
@@ -380,6 +431,8 @@ def phase_eval(cfg: BenchmarkConfig, cells, *, workers: int) -> Path:
             "test_pass": "", "test_total": "", "eval_status": "",
             "llm_calls": "", "input_tokens": "", "output_tokens": "", "latency_s": "",
             "stopped": "",
+            "evaluation_protocol": cfg.evaluation_protocol,
+            "generation_revision": meta.get("worker_revision", ""),
         }
         err = b.error or meta.get("error") or ""
         if generated:
@@ -387,11 +440,18 @@ def phase_eval(cfg: BenchmarkConfig, cells, *, workers: int) -> Path:
                 row[k] = meta.get(k, "")
             text = cell.out_path.read_text()
             row["standalone_compile"] = int(E.standalone_compile(text, cell.opt)[0])
-            h = E.harness(cell.sample, text, b.function or cell.sample.function or cell.sample.name)
+            h = E.harness(cell.sample, text, b.function or cell.sample.function or cell.sample.name,
+                          protocol=cfg.evaluation_protocol)
             for k in ("compile_ok", "test_passed", "test_pass", "test_total"):
                 row[k] = "" if h[k] is None else h[k]
             row["eval_status"] = h["status"]
             err = h["compile_error"] or (h["test_output"] if h["test_passed"] == 0 else "")
+            if cfg.evaluation_protocol == "strict-v1":
+                detail = (cfg.report_out_dir / "details" / cell.pipeline.name / _safe(cell.model)
+                          / cell.sample.repo / cell.opt / (cell.sample.name + ".json"))
+                detail.parent.mkdir(parents=True, exist_ok=True)
+                B.write_atomic(detail, json.dumps({"evaluation_protocol": cfg.evaluation_protocol,
+                    "candidate_sha256": hashlib.sha256(text.encode()).hexdigest(), **h}, indent=2))
         elif cell.out_path.exists():
             err = "stale: made with different pipeline settings"
         row["error"] = _first_line(err, "")

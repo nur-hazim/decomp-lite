@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
+from pathlib import Path
 import sys
 
 from decomplite import benchmark as bench
@@ -26,6 +28,9 @@ def main(argv=None) -> int:
                         "(decompile: also replaces results made with other settings)")
     b.add_argument("--workers", type=int, default=1,
                    help="parallel workers (builds/Ghidra runs, concurrent LLM calls)")
+    b.add_argument("--evaluation-protocol", choices=config.EVALUATION_PROTOCOLS,
+                   help="override scoring only; does not regenerate model answers")
+    b.add_argument("--report-dir", type=Path, help="write evaluation to a separate directory")
     for name in ("repo", "opt", "fn", "model", "pipeline"):
         b.add_argument(f"--filter-{name}", default=None,
                        help=f"restrict to these {name}s (comma-separated)")
@@ -34,17 +39,27 @@ def main(argv=None) -> int:
     config.load_dotenv(config.ROOT / ".env")
     try:
         cfg = config.load(args.config)
+        if args.evaluation_protocol:
+            cfg = replace(cfg, evaluation_protocol=args.evaluation_protocol)
+        if args.report_dir:
+            cfg = replace(cfg, report_out_dir=args.report_dir.resolve())
         filters = {n: getattr(args, f"filter_{n}") for n in ("repo", "opt", "fn", "model", "pipeline")}
+        from decomplite.methods import prepare
+        chosen = bench._csv(args.filter_pipeline)
+        cfg = prepare(cfg, online=not args.dry_run and args.phase in ("all", "decompile"), selected=chosen)
         samples, opts, cells = bench.resolve(cfg, filters)
-    except (ValueError, FileNotFoundError) as e:
+    except (ValueError, FileNotFoundError, ToolchainError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 
-    print(f"{len(samples)} functions x {len(opts)} opts x "
-          f"{len({c.model for c in cells})} model(s) x "
+    print(f"{len(samples)} functions, {len(opts)} opts, "
+          f"{len({c.model for c in cells})} model(s), "
           f"{len({c.pipeline.name for c in cells})} pipeline(s) = {len(cells)} cells")
     if args.dry_run:
         for pl in cfg.pipelines:
+            if pl.method:
+                print(f"  pipeline {pl.name}: method {pl.method}, input {'+'.join(pl.input)}, model {pl.model}")
+                continue
             n, r = len(pl.recovery), len(pl.reviewers)
             print(f"  pipeline {pl.name}: input {'+'.join(pl.input)}, {n} recovery LLM"
                   f"{'s' * (n != 1)}, {r} reviewer{'s' * (r != 1)}, feedback {pl.feedback}, "
