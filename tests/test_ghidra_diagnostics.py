@@ -1,6 +1,8 @@
 """Do not lose script failures behind Ghidra's final analysis timing table."""
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
@@ -61,3 +63,33 @@ def test_timeout_keeps_output_before_terminating_process_group(tmp_path, monkeyp
                          'import time; print("before timeout", flush=True); time.sleep(30)'],
                         log_dir=tmp_path)
     assert 'before timeout' in (tmp_path / 'ghidra.stdout.log').read_text()
+
+
+def test_parallel_runtime_startups_cannot_share_or_overwrite_settings(tmp_path, monkeypatch):
+    # Model the runtime's copy-then-import behavior with real subprocesses.
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path / 'parent-settings'))
+    code = '''import os,sys,time
+from pathlib import Path
+root=Path(os.environ['XDG_CONFIG_HOME'])
+p=root/'ghidra/dev/jython_cachedir/jython-src/introspect.py'
+p.parent.mkdir(parents=True)
+p.write_text(sys.argv[1])
+time.sleep(0.2)
+assert p.read_text()==sys.argv[1], 'another runtime overwrote introspect.py'
+print(root)
+'''
+
+    def run(index):
+        directory = tmp_path / str(index)
+        result = R._run_headless([sys.executable, '-c', code, str(index)], log_dir=directory)
+        assert result.returncode == 0, result.stderr
+        metadata = json.loads((directory / 'ghidra.run.json').read_text())
+        assert metadata['settings_isolation'] == 'per-process'
+        assert result.stdout.strip() == metadata['xdg_config_home']
+        return metadata['xdg_config_home']
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        paths = list(pool.map(run, range(4)))
+    assert len(set(paths)) == 4
+    assert all(not Path(path).exists() for path in paths)
+    assert not (tmp_path / 'parent-settings').exists()

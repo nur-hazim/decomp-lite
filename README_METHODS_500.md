@@ -166,6 +166,12 @@ varnodes`); both extracted successfully with 12.1.2 on the unchanged local
 binaries. This verifies extraction, not semantic correctness of the pseudo-C.
 Full Ghidra stdout/stderr and launch metadata are now retained alongside each
 channel manifest under `data/channels/<repo>/x86_64/<opt>/<function>/`.
+Each headless process also gets a private, temporary Ghidra settings directory
+so parallel Jython startups cannot overwrite each other's cached runtime Python
+files (such as `jython-src/introspect.py`). This runtime-only fix preserves the
+existing pseudo-C version/script fingerprints, so successful 12.1.2 inputs stay
+cached. Pulling this Python change requires no Docker image rebuild; rerun the
+normal run command to retry missing inputs and continue.
 
 The first Fidelity cell initializes shared retrieval resources at one worker;
 the remaining work uses four concurrent cells. To lower resource pressure:

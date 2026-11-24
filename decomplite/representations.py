@@ -108,8 +108,18 @@ def require_ghidra_version(expected: str) -> str:
 def _run_headless(cmd: list[str], *, log_dir: Path | None = None) -> subprocess.CompletedProcess:
     """Run analyzeHeadless with a timeout that takes down the whole process
     tree, not just the launcher script."""
+    # Jython copies its Python runtime sources into Ghidra's user settings
+    # directory at startup. Concurrent JVMs must not read/write the same copy.
+    # Keep this runtime isolation separate from pseudo-C provenance: it does
+    # not change the binary, Ghidra release, or extraction script.
+    with tempfile.TemporaryDirectory(prefix="decomplite-ghidra-settings-") as settings:
+        env = dict(os.environ, XDG_CONFIG_HOME=settings)
+        return _run_headless_process(cmd, env, log_dir)
+
+
+def _run_headless_process(cmd, env, log_dir):
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            text=True, start_new_session=True)
+                            text=True, start_new_session=True, env=env)
     try:
         stdout, stderr = proc.communicate(timeout=_GHIDRA_TIMEOUT_S)
     except subprocess.TimeoutExpired:
@@ -118,20 +128,21 @@ def _run_headless(cmd: list[str], *, log_dir: Path | None = None) -> subprocess.
         except (ProcessLookupError, PermissionError):
             proc.kill()
         stdout, stderr = proc.communicate()
-        _save_headless_logs(log_dir, cmd, proc.returncode, stdout, stderr)
+        _save_headless_logs(log_dir, cmd, proc.returncode, stdout, stderr, env["XDG_CONFIG_HOME"])
         raise RuntimeError(f"Ghidra timed out after {_GHIDRA_TIMEOUT_S}s; logs: {log_dir}") from None
-    _save_headless_logs(log_dir, cmd, proc.returncode, stdout, stderr)
+    _save_headless_logs(log_dir, cmd, proc.returncode, stdout, stderr, env["XDG_CONFIG_HOME"])
     return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 
-def _save_headless_logs(directory, cmd, returncode, stdout, stderr):
+def _save_headless_logs(directory, cmd, returncode, stdout, stderr, settings_dir=None):
     if directory is None:
         return
     directory.mkdir(parents=True, exist_ok=True)
     write_atomic(directory / "ghidra.stdout.log", stdout or "")
     write_atomic(directory / "ghidra.stderr.log", stderr or "")
     write_atomic(directory / "ghidra.run.json", json.dumps(
-        {"command": cmd, "returncode": returncode}, indent=2))
+        {"command": cmd, "returncode": returncode,
+         "settings_isolation": "per-process", "xdg_config_home": settings_dir}, indent=2))
 
 
 def _headless_failure(res):
