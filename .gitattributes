@@ -1,3 +1,6 @@
 *.sh text eol=lf
 *.fish text eol=lf
 Dockerfile* text eol=lf
+
+# Frozen task bytes are hash-anchored to the accepted C corpus.
+decomplite/humaneval_support/humaneval-c.jsonl -text

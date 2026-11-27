@@ -59,8 +59,16 @@ def test_version_pin_uses_installed_properties_not_environment_claim(tmp_path, m
         R.require_ghidra_version('12.1.2')
 
 
-def test_five_pseudoc_pipelines_are_pinned_and_three_asm_pipelines_are_independent():
-    cfg = config.load(ROOT / 'benchmark_methods_500.yaml')
+def test_five_pseudoc_pipelines_are_pinned_and_three_asm_pipelines_are_independent(tmp_path):
+    import yaml
+    raw = yaml.safe_load((ROOT / 'benchmark_humaneval.yaml').read_text())
+    manifest = tmp_path / 'selection.json'
+    manifest.write_text('{}')
+    raw['identity_manifest'] = str(manifest)
+    raw['models_file'] = str(ROOT / 'models_methods.yaml')
+    path = tmp_path / 'config.yaml'
+    path.write_text(yaml.safe_dump(raw))
+    cfg = config.load(path)
     pseudo = [p for p in cfg.pipelines if 'pseudoc' in p.input]
     asm = [p for p in cfg.pipelines if p.input == ('asm',)]
     assert len(pseudo) == 5 and len(asm) == 3

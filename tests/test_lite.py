@@ -42,8 +42,9 @@ def make_config(tmp_path, pipelines, **top):
     return config.load(path)
 
 
-def test_shipped_config_loads():
-    cfg = config.load(ROOT / "benchmark.yaml")
+def test_single_pass_defaults(tmp_path):
+    cfg = make_config(tmp_path, {"single_pass": {"input": "asm"}},
+        opts=["O0","O1","O2","O3","Os"], repos=[{"name":"example","functions":["sum_array"]}])
     assert cfg.archs == ("x86_64",)
     assert cfg.opts == ("O0", "O1", "O2", "O3", "Os")
     assert [r.name for r in cfg.repos] == ["example"]

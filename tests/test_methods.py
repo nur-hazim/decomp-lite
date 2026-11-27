@@ -16,7 +16,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_all_eight_methods_have_bound_models_and_exactly_20000_cells(monkeypatch, tmp_path):
-    cfg = config.load(ROOT / "benchmark_methods_500.yaml")
+    raw = yaml.safe_load((ROOT / "benchmark_humaneval.yaml").read_text())
+    raw.pop("repos")
+    raw["functions_from"] = str(ROOT / "functions_methods_500.yaml")
+    raw["identity_manifest"] = str(ROOT / "tools/methods_500/selection.json")
+    raw["models_file"] = str(ROOT / "models_methods.yaml")
+    fixture = tmp_path / "legacy.yaml"
+    fixture.write_text(yaml.safe_dump(raw))
+    cfg = config.load(fixture)
     manifest = json.loads(cfg.identity_manifest.read_text())
 
     def dataset(selection):

@@ -1,0 +1,3 @@
+Ported from decompbench-65CB-humaneval, commit f19948fc6337af6911cd7435cc695e381f8aab90.
+Modules: multipl_e/workload.py, candidate.py, author.py; repos/multipl_e_humaneval.py; pipelines/sccdec_author.py and sccdec_author_xarch.py.
+Imports adapted for Lite. No solutions or test-only fixtures are included.

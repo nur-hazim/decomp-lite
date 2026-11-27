@@ -273,8 +273,15 @@ def harness(sample: Sample, text: str, function: str, *, run: bool = True, proto
     work_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="h_", dir=work_root) as td:
         work = Path(td)
-        (work / sample.source_path.name).write_bytes(
-            PREAMBLE.encode() + reference[:span[0]] + candidate.encode() + reference[span[1]:])
+        if sample.repo == "multipl_e_humaneval":
+            from decomplite.humaneval_support.candidate import assemble
+            try:
+                replacement = assemble(reference.decode(), function, candidate).encode()
+            except ValueError as exc:
+                return dict(out, compile_ok=0, test_passed=None if not run else 0, compile_error=str(exc))
+        else:
+            replacement = reference[:span[0]] + candidate.encode() + reference[span[1]:]
+        (work / sample.source_path.name).write_bytes(PREAMBLE.encode() + replacement)
         shutil.copy(sample.test_path, work / sample.test_path.name)
         if (src_dir / "_include").is_dir():
             (work / "_include").symlink_to(src_dir / "_include", target_is_directory=True)

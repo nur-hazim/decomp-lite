@@ -1,0 +1,5 @@
+# Reuse the tested native toolchain and Ghidra 12.1.2 image already on gpu25.
+ARG BASE_IMAGE=decomp-lite-exebench-ghidra12
+FROM ${BASE_IMAGE}
+USER root
+WORKDIR /work

@@ -1,0 +1,212 @@
+# HumanEval C only: 161 frozen tasks; no ExeBench selection.
+archs:
+- x86_64
+opts:
+- O0
+- O1
+- O2
+- O3
+- Os
+compilers:
+- gcc
+model: gemma4-31b-it-vllm
+models_file: models_methods.yaml
+repos:
+- name: multipl_e_humaneval
+  path: data/humaneval/data/repos/c/multipl_e_humaneval
+  cflags:
+  - -std=c11
+  - -pedantic-errors
+  - -UNDEBUG
+  functions:
+  - he_HumanEval_0_has_close_elements
+  - he_HumanEval_100_make_a_pile
+  - he_HumanEval_101_words_string
+  - he_HumanEval_102_choose_num
+  - he_HumanEval_103_rounded_avg
+  - he_HumanEval_104_unique_digits
+  - he_HumanEval_105_by_length
+  - he_HumanEval_106_f
+  - he_HumanEval_107_even_odd_palindrome
+  - he_HumanEval_108_count_nums
+  - he_HumanEval_109_move_one_ball
+  - he_HumanEval_10_make_palindrome
+  - he_HumanEval_110_exchange
+  - he_HumanEval_111_histogram
+  - he_HumanEval_112_reverse_delete
+  - he_HumanEval_113_odd_count
+  - he_HumanEval_114_minSubArraySum
+  - he_HumanEval_115_max_fill
+  - he_HumanEval_116_sort_array
+  - he_HumanEval_117_select_words
+  - he_HumanEval_118_get_closest_vowel
+  - he_HumanEval_119_match_parens
+  - he_HumanEval_11_string_xor
+  - he_HumanEval_120_maximum
+  - he_HumanEval_121_solution
+  - he_HumanEval_122_add_elements
+  - he_HumanEval_123_get_odd_collatz
+  - he_HumanEval_124_valid_date
+  - he_HumanEval_125_split_words
+  - he_HumanEval_126_is_sorted
+  - he_HumanEval_127_intersection
+  - he_HumanEval_128_prod_signs
+  - he_HumanEval_129_minPath
+  - he_HumanEval_12_longest
+  - he_HumanEval_130_tri
+  - he_HumanEval_131_digits
+  - he_HumanEval_132_is_nested
+  - he_HumanEval_133_sum_squares
+  - he_HumanEval_134_check_if_last_char_is_a_letter
+  - he_HumanEval_135_can_arrange
+  - he_HumanEval_136_largest_smallest_integers
+  - he_HumanEval_137_compare_one
+  - he_HumanEval_138_is_equal_to_sum_even
+  - he_HumanEval_139_special_factorial
+  - he_HumanEval_13_greatest_common_divisor
+  - he_HumanEval_140_fix_spaces
+  - he_HumanEval_141_file_name_check
+  - he_HumanEval_142_sum_squares
+  - he_HumanEval_143_words_in_sentence
+  - he_HumanEval_144_simplify
+  - he_HumanEval_145_order_by_points
+  - he_HumanEval_146_specialFilter
+  - he_HumanEval_147_get_max_triples
+  - he_HumanEval_148_bf
+  - he_HumanEval_149_sorted_list_sum
+  - he_HumanEval_14_all_prefixes
+  - he_HumanEval_150_x_or_y
+  - he_HumanEval_151_double_the_difference
+  - he_HumanEval_152_compare
+  - he_HumanEval_153_Strongest_Extension
+  - he_HumanEval_154_cycpattern_check
+  - he_HumanEval_155_even_odd_count
+  - he_HumanEval_156_int_to_mini_roman
+  - he_HumanEval_157_right_angle_triangle
+  - he_HumanEval_158_find_max
+  - he_HumanEval_159_eat
+  - he_HumanEval_15_string_sequence
+  - he_HumanEval_160_do_algebra
+  - he_HumanEval_161_solve
+  - he_HumanEval_162_string_to_md5
+  - he_HumanEval_163_generate_integers
+  - he_HumanEval_16_count_distinct_characters
+  - he_HumanEval_17_parse_music
+  - he_HumanEval_18_how_many_times
+  - he_HumanEval_19_sort_numbers
+  - he_HumanEval_1_separate_paren_groups
+  - he_HumanEval_20_find_closest_elements
+  - he_HumanEval_21_rescale_to_unit
+  - he_HumanEval_22_filter_integers
+  - he_HumanEval_23_strlen
+  - he_HumanEval_24_largest_divisor
+  - he_HumanEval_25_factorize
+  - he_HumanEval_26_remove_duplicates
+  - he_HumanEval_27_flip_case
+  - he_HumanEval_28_concatenate
+  - he_HumanEval_29_filter_by_prefix
+  - he_HumanEval_2_truncate_number
+  - he_HumanEval_30_get_positive
+  - he_HumanEval_31_is_prime
+  - he_HumanEval_33_sort_third
+  - he_HumanEval_34_unique
+  - he_HumanEval_35_max_element
+  - he_HumanEval_36_fizz_buzz
+  - he_HumanEval_37_sort_even
+  - he_HumanEval_39_prime_fib
+  - he_HumanEval_3_below_zero
+  - he_HumanEval_40_triples_sum_to_zero
+  - he_HumanEval_41_car_race_collision
+  - he_HumanEval_42_incr_list
+  - he_HumanEval_43_pairs_sum_to_zero
+  - he_HumanEval_44_change_base
+  - he_HumanEval_45_triangle_area
+  - he_HumanEval_46_fib4
+  - he_HumanEval_47_median
+  - he_HumanEval_48_is_palindrome
+  - he_HumanEval_49_modp
+  - he_HumanEval_4_mean_absolute_deviation
+  - he_HumanEval_51_remove_vowels
+  - he_HumanEval_52_below_threshold
+  - he_HumanEval_53_add
+  - he_HumanEval_54_same_chars
+  - he_HumanEval_55_fib
+  - he_HumanEval_56_correct_bracketing
+  - he_HumanEval_57_monotonic
+  - he_HumanEval_58_common
+  - he_HumanEval_59_largest_prime_factor
+  - he_HumanEval_5_intersperse
+  - he_HumanEval_60_sum_to_n
+  - he_HumanEval_61_correct_bracketing
+  - he_HumanEval_62_derivative
+  - he_HumanEval_63_fibfib
+  - he_HumanEval_64_vowels_count
+  - he_HumanEval_65_circular_shift
+  - he_HumanEval_66_digitSum
+  - he_HumanEval_67_fruit_distribution
+  - he_HumanEval_68_pluck
+  - he_HumanEval_69_search
+  - he_HumanEval_6_parse_nested_parens
+  - he_HumanEval_70_strange_sort_list
+  - he_HumanEval_71_triangle_area
+  - he_HumanEval_72_will_it_fly
+  - he_HumanEval_73_smallest_change
+  - he_HumanEval_74_total_match
+  - he_HumanEval_75_is_multiply_prime
+  - he_HumanEval_76_is_simple_power
+  - he_HumanEval_77_iscube
+  - he_HumanEval_78_hex_key
+  - he_HumanEval_79_decimal_to_binary
+  - he_HumanEval_7_filter_by_substring
+  - he_HumanEval_80_is_happy
+  - he_HumanEval_81_numerical_letter_grade
+  - he_HumanEval_82_prime_length
+  - he_HumanEval_83_starts_one_ends
+  - he_HumanEval_84_solve
+  - he_HumanEval_85_add
+  - he_HumanEval_86_anti_shuffle
+  - he_HumanEval_87_get_row
+  - he_HumanEval_88_sort_array
+  - he_HumanEval_89_encrypt
+  - he_HumanEval_8_sum_product
+  - he_HumanEval_90_next_smallest
+  - he_HumanEval_91_is_bored
+  - he_HumanEval_92_any_int
+  - he_HumanEval_93_encode
+  - he_HumanEval_94_skjkasdkd
+  - he_HumanEval_95_check_dict_case
+  - he_HumanEval_96_count_up_to
+  - he_HumanEval_97_multiply
+  - he_HumanEval_98_count_upper
+  - he_HumanEval_99_closest_integer
+  - he_HumanEval_9_rolling_max
+identity_manifest: data/humaneval/selection.json
+evaluation_protocol: strict-v1
+ghidra_version: 12.1.2
+pipelines:
+  llm4decompile_ghidra:
+    method: llm4decompile_ghidra
+    model: llm4decompile-22b-v2-vllm
+  degpt:
+    method: degpt
+    model: gemma4-31b-it-vllm
+  fidelitygpt:
+    method: fidelitygpt
+    model: gemma4-31b-it-vllm
+  agent4decompile_author_xarch:
+    method: agent4decompile_author_xarch
+    model: gemma4-31b-it-vllm
+  sk2decompile:
+    method: sk2decompile
+    model: sk2decompile-struct-vllm
+  llm4decompile_asm:
+    method: llm4decompile_asm
+    model: llm4decompile-6.7b-v1.5-vllm
+  sccdec_author_xarch:
+    method: sccdec_author_xarch
+    model: sccdec-lora-paper-vllm
+  nova:
+    method: nova
+    model: nova-6.7b-bcr
+report:
+  out_dir: reports

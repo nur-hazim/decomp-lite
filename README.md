@@ -1,3 +1,17 @@
+# HumanEval-only branch
+
+This branch now defaults to HumanEval C with the same eight model pipelines, Ghidra 12.1.2, stripped x86-64 inputs and GPU 1.
+
+See [README_HUMANEVAL.md](README_HUMANEVAL.md) for required accepted C inputs and the Ubuntu build/run commands. Prompts/tests alone cannot be decompiled.
+
+The normal results/ and reports/ locations are reused. Existing cached ExeBench files are not selected or deleted.
+
+---
+
+## Generic engine reference (historical examples)
+
+The reference below describes engine features; use the HumanEval guide above for this branch's actual experiment.
+
 # decomp-lite
 
 A playground for **LLM-assisted decompilation with configurable pipelines**.

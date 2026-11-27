@@ -64,7 +64,7 @@ def prepare(cfg, *, online=False, selected=None):
             raise MethodWorkerUnavailable("method worker protocol mismatch")
         manifest = json.loads(cfg.identity_manifest.read_text())
         if health.get("selection_sha256") != digest(manifest):
-            raise MethodWorkerUnavailable("worker selection differs from the existing 500-function manifest")
+            raise MethodWorkerUnavailable("worker selection differs from the configured dataset manifest")
         required = sorted({p.method for p in cfg.pipelines if p.method and (selected is None or p.name in selected)})
         # Cold imports of both isolated method environments can exceed one
         # ordinary polling timeout. Individual prerequisite checks are bounded.
@@ -82,15 +82,14 @@ def identity(cfg, sample):
     if key not in _IDENTITIES:
         manifest = json.loads(cfg.identity_manifest.read_text())
         rows = manifest.get("functions", [])
-        if len(rows) != 500 or len({r["source_key"] for r in rows}) != 500:
-            raise ValueError("expected the complete, unique original 500-function selection")
-        _IDENTITIES[key] = {(r["split"], r["name"]): r for r in rows}
-    splits = {"exebench_test_real": "test_real", "exebench_valid_real": "valid_real"}
-    if sample.repo not in splits:
-        raise ValueError(f"named methods need the staged ExeBench 500 dataset, got {sample.repo!r}")
-    row = _IDENTITIES[key].get((splits[sample.repo], sample.name))
+        humaneval = manifest.get("dataset") == "multipl_e_humaneval"
+        expected = 161 if humaneval else 500
+        if len(rows) != expected or len({r["source_key"] for r in rows}) != expected:
+            raise ValueError(f"expected the complete, unique {expected}-function selection")
+        _IDENTITIES[key] = {(r.get("repo", "exebench_" + r["split"]), r["name"]): r for r in rows}
+    row = _IDENTITIES[key].get((sample.repo, sample.name))
     if row is None:
-        raise ValueError(f"sample {sample.repo}/{sample.name} is absent from the selected 500")
+        raise ValueError(f"sample {sample.repo}/{sample.name} is absent from the configured selection")
     source_sha = hashlib.sha256(sample.source_path.read_bytes()).hexdigest()
     if source_sha != row["context_sha256"]:
         raise ValueError(f"original source hash changed for {row['source_key']}; no model call made")

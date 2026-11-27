@@ -157,6 +157,11 @@ def phase_build(cfg: BenchmarkConfig, samples, opts, cells, *, force: bool, work
         sample, opt = job
         b = B.build(sample, opt, force=force)
         got = R.materialize(b, channels, force=force) if b.ok else {}
+        if named_methods and got.get("pseudoc"):
+            count = len(E._function_defs(got["pseudoc"].encode()))
+            if count != 1:
+                got.pop("pseudoc")
+                got["_validation_error"] = f"expected one Ghidra function, found {count}"
         return sample, opt, b, got
 
     results = _map(one, [(s, o) for s in samples for o in opts], workers, "build")
@@ -178,7 +183,7 @@ def phase_build(cfg: BenchmarkConfig, samples, opts, cells, *, force: bool, work
         path = cfg.report_out_dir / "input_eligibility.csv"
         rows = []
         for sample, opt, built, got in results:
-            errors = [built.error] if not built.ok else [R.channel_error(built, c) for c in channels if not got.get(c)]
+            errors = [built.error] if not built.ok else [got.get("_validation_error") or R.channel_error(built, c) for c in channels if not got.get(c)]
             rows.append({"repo": sample.repo, "function": sample.name, "opt": opt,
                          "ghidra_version": ghidra_version,
                          "eligible": int(built.ok and all(got.get(c) for c in channels)),
