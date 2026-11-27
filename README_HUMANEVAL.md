@@ -137,8 +137,17 @@ at `$HUMANEVAL_ROOT/data/multipl_e_preparation/humaneval-c.jsonl`. Override its
 location with `HUMANEVAL_EXPECTED`. When the corpus hash differs from the bundled
 file, validation requires this original file to match the manifest hash and every
 decoded task record to match the bundled record, including prompt/test string
-contents and metadata. All installed task IDs, test suites and declarations are
+contents and metadata, except the two explicitly reviewed comment encoding
+corrections below. All installed task IDs, test suites and declarations are
 still checked. The proof file is retained and hashed inside the staged suite.
+
+The preparation file corrects the misdecoded less-than-or-equal sign in one
+comment line each in `HumanEval_147_get_max_triples` and `HumanEval_84_solve`.
+Validation allows only those exact whole-line corrections for those task IDs;
+it does not ignore comments generally. Tests, interfaces and all other content
+remain checked. Installed declarations must match the exact hash-bound
+preparation file. `prompt_validation.json` records the affected task IDs under
+`reviewed_comment_encoding_tasks`, and the original proof file is retained.
 
 A real difference stops with the task ID and changed field. A file that does not
 match the corpus's recorded hash is also rejected. Do not edit manifest hashes,

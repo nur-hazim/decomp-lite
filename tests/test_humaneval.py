@@ -244,3 +244,63 @@ def test_duplicate_task_records_rejected(corpus,tmp_path):
     expected.write_text('\n'.join(rows)+'\n')
     with pytest.raises(ValueError,match='Duplicate task ID'):
         H.equivalent_tasks(expected,H.FROZEN_TASKS)
+
+
+def test_real_frozen_corpus_accepts_only_reviewed_comment_repairs(tmp_path):
+    bundled=ROOT/'decomplite/humaneval_support/humaneval-c.jsonl'
+    rows=list(H.task_records(bundled).values())
+    changed=[]
+    for row in rows:
+        fixed=H.reviewed_prompt(row['name'],row['prompt'])
+        if fixed!=row['prompt']:changed.append(row['name'])
+        row['prompt']=fixed
+    assert set(changed)==set(H.COMMENT_ENCODING_REPAIRS)
+    accepted=tmp_path/'corrected.jsonl'
+    accepted.write_text('\n'.join(map(json.dumps,rows))+'\n',encoding='utf-8')
+    H.equivalent_tasks(accepted,bundled)
+    target=next(r for r in rows if r['name']=='HumanEval_147_get_max_triples')
+    # Even another comment change remains a rejected content change.
+    target['prompt']+='// Unreviewed content\n'
+    accepted.write_text('\n'.join(map(json.dumps,rows))+'\n',encoding='utf-8')
+    with pytest.raises(ValueError,match='content change'):
+        H.equivalent_tasks(accepted,bundled)
+
+
+@pytest.mark.parametrize('field',['prompt','tests'])
+def test_reviewed_repairs_do_not_allow_interface_or_assertion_changes(tmp_path,field):
+    bundled=ROOT/'decomplite/humaneval_support/humaneval-c.jsonl'
+    rows=list(H.task_records(bundled).values())
+    target=next(r for r in rows if r['name']=='HumanEval_147_get_max_triples')
+    target['prompt']=H.reviewed_prompt(target['name'],target['prompt'])
+    target[field]=target[field].replace('int64_t','int32_t') if field=='prompt' else target[field].replace('INT64_C(5)','INT64_C(4)')
+    accepted=tmp_path/'changed.jsonl'
+    accepted.write_text('\n'.join(map(json.dumps,rows))+'\n',encoding='utf-8')
+    with pytest.raises(ValueError,match='content change'):
+        H.equivalent_tasks(accepted,bundled)
+
+
+def test_reviewed_header_encoding_is_bound_retained_and_verified(corpus,tmp_path,monkeypatch):
+    task='HumanEval_0_fixture';name='he_'+task
+    before,after=H.COMMENT_ENCODING_REPAIRS['HumanEval_147_get_max_triples']
+    monkeypatch.setitem(H.COMMENT_ENCODING_REPAIRS,task,(before,after))
+    rows=list(H.task_records(H.FROZEN_TASKS).values())
+    row=next(r for r in rows if r['name']==task)
+    row['prompt']=before+'\n'+row['prompt']
+    H.FROZEN_TASKS.write_text('\n'.join(map(json.dumps,rows))+'\n',encoding='utf-8')
+    row['prompt']=after+'\n'+row['prompt'].split('\n',1)[1]
+    accepted=tmp_path/'accepted.jsonl'
+    accepted.write_text('\n'.join(map(json.dumps,rows))+'\n',encoding='utf-8')
+    header=corpus/'_harness'/(name+'_decl.h')
+    header.write_bytes((after+'\n'+header.read_text()).encode())
+    p=corpus/H.MANIFEST;manifest=json.loads(p.read_text())
+    manifest['prompts_sha256']=H.sha(accepted.read_bytes())
+    manifest['functions'][name]['header_sha256']=H.sha(header.read_bytes())
+    p.write_text(json.dumps(manifest))
+    staged=H.stage(corpus,tmp_path/'reviewed_suite',expected=accepted)
+    validation=json.loads((staged/'prompt_validation.json').read_text())
+    assert validation['reviewed_comment_encoding_tasks']==[task]
+    accepted.unlink()
+    H.verify(staged)
+    copied=staged/'data/repos/c'/H.REPO_NAME/'_harness'/(name+'_decl.h')
+    copied.write_bytes(copied.read_bytes()+b'// changed\n')
+    with pytest.raises(ValueError,match='changed'):H.verify(staged)
