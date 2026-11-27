@@ -123,3 +123,24 @@ checks cover all 805 fixture reference suites, cache resume, wrong answers, type
 helper retention, immutable tests, the 6,440-cell plan and all eight worker routes.
 A real-corpus/model smoke run still requires the accepted C implementation corpus
 and your Ubuntu GPU servers; no remote model run is claimed by local tests.
+
+
+## Prompt-file hash mismatch
+
+The corpus manifest records the SHA256 of the JSONL used to accept its C bodies.
+Different JSON key/record ordering, escaping or line endings can change this raw
+hash without changing decoded task content. A different hash alone does not
+establish that the tests changed.
+
+For an installed corpus, the launcher also mounts the original preparation file
+at `$HUMANEVAL_ROOT/data/multipl_e_preparation/humaneval-c.jsonl`. Override its
+location with `HUMANEVAL_EXPECTED`. When the corpus hash differs from the bundled
+file, validation requires this original file to match the manifest hash and every
+decoded task record to match the bundled record, including prompt/test string
+contents and metadata. All installed task IDs, test suites and declarations are
+still checked. The proof file is retained and hashed inside the staged suite.
+
+A real difference stops with the task ID and changed field. A file that does not
+match the corpus's recorded hash is also rejected. Do not edit manifest hashes,
+replace tests or substitute the bundled JSONL merely to bypass the check; locate
+the exact preparation file or review the corpus-version difference first.

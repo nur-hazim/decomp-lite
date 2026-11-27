@@ -22,10 +22,49 @@ OPTS = ('O0','O1','O2','O3','Os')
 def sha(data): return hashlib.sha256(data).hexdigest()
 def digest(value): return sha(json.dumps(value,sort_keys=True,separators=(',',':')).encode())
 
-def check_frozen(corpus, manifest):
-    rows=[json.loads(line) for line in FROZEN_TASKS.read_text(encoding='utf-8').splitlines() if line.strip()]
-    if manifest.get('prompts_sha256') != sha(FROZEN_TASKS.read_bytes()):
-        raise ValueError('HumanEval corpus was not accepted against the bundled frozen prompts/tests')
+def task_records(path):
+    """Compare decoded JSON records, never normalize prompt/test string contents."""
+    def unique_keys(pairs):
+        row={}
+        for key,value in pairs:
+            if key in row: raise ValueError(f"Duplicate JSON key {key!r} in {path}")
+            row[key]=value
+        return row
+    records={}
+    for line in Path(path).read_text(encoding='utf-8-sig').splitlines():
+        if not line.strip(): continue
+        row=json.loads(line,object_pairs_hook=unique_keys)
+        if not isinstance(row,dict) or not isinstance(row.get('name'),str):
+            raise ValueError(f'Invalid task record in {path}')
+        if row['name'] in records: raise ValueError('Duplicate task ID: '+row['name'])
+        records[row['name']]=row
+    if len(records)!=161: raise ValueError(f'Expected 161 distinct task records in {path}')
+    return records
+
+
+def equivalent_tasks(actual, bundled):
+    expected,provided=task_records(bundled),task_records(actual)
+    if set(expected)!=set(provided):
+        raise ValueError('Prompt-file task IDs differ from the bundled frozen corpus')
+    for task in sorted(expected):
+        fields=set(expected[task])|set(provided[task])
+        for field in sorted(fields):
+            if (field not in expected[task] or field not in provided[task]
+                    or digest(expected[task][field])!=digest(provided[task][field])):
+                raise ValueError(f'HumanEval task {task} differs in field {field!r}; this is a content change, not JSON serialization. Do not edit hashes or tests to bypass it.')
+    return digest(expected)
+
+
+def check_frozen(corpus, manifest, expected=None):
+    rows=list(task_records(FROZEN_TASKS).values())
+    recorded=manifest.get('prompts_sha256')
+    bundled=sha(FROZEN_TASKS.read_bytes())
+    if recorded!=bundled:
+        if expected is None:
+            raise ValueError(f'HumanEval prompt-file hash mismatch: corpus={recorded}, bundled={bundled}. Supply --expected with the original humaneval-c.jsonl whose SHA256 matches the corpus. JSON serialization differences are accepted only after full task/prompt/test comparison; changed content remains rejected.')
+        if sha(Path(expected).read_bytes())!=recorded:
+            raise ValueError(f'Supplied --expected file does not match corpus prompts_sha256={recorded}; locate the exact file used to accept this corpus. Do not rewrite the manifest hash.')
+        equivalent_tasks(expected,FROZEN_TASKS)
     if set(manifest['functions']) != {'he_'+r['name'] for r in rows}:
         raise ValueError('HumanEval task IDs differ from the complete frozen corpus')
     import re
@@ -37,11 +76,14 @@ def check_frozen(corpus, manifest):
             raise ValueError('Frozen tests changed for '+name)
         if (corpus/'_harness'/(name+'_decl.h')).read_text(encoding='utf-8')!=header:
             raise ValueError('Frozen declaration changed for '+name)
+    return dict(corpus_prompts_sha256=recorded,bundled_prompts_sha256=bundled,
+                raw_hash_matches=recorded==bundled,canonical_records_sha256=digest(task_records(FROZEN_TASKS)))
 
-def stage(corpus, destination=SUITE):
+
+def stage(corpus, destination=SUITE, expected=None):
     corpus, destination = Path(corpus).resolve(), Path(destination).resolve()
     manifest = load_manifest(corpus, verify_sources=True)
-    check_frozen(corpus,manifest)
+    prompt_validation=check_frozen(corpus,manifest,expected)
     if sum(x['assertions'] for x in manifest['functions'].values()) != 1130:
         raise ValueError('Expected the complete frozen 161-task/1130-assertion C port')
     if destination.exists():
@@ -66,6 +108,9 @@ def stage(corpus, destination=SUITE):
                 function_id=entry['task'],source_key='humaneval:'+entry['task'],
                 context_sha256=entry['source_sha256'],assertions=entry['assertions']))
         selection=dict(schema=2,dataset=REPO_NAME,count=161,assertions=1130,functions=rows)
+        if not prompt_validation['raw_hash_matches']:
+            shutil.copyfile(expected,staged/'accepted-prompts.jsonl')
+        (staged/'prompt_validation.json').write_text(json.dumps(prompt_validation,indent=2),encoding='utf-8')
         (staged/'selection.json').write_text(json.dumps(selection,indent=2),encoding='utf-8')
         files={str(p.relative_to(staged)).replace('\\','/'):sha(p.read_bytes()) for p in staged.rglob('*') if p.is_file()}
         suite=dict(protocol=PROTOCOL,dataset=REPO_NAME,selection=selection,selection_sha256=digest(selection),
@@ -86,7 +131,8 @@ def verify(root=None):
         if not p.is_relative_to(root) or sha(p.read_bytes())!=expected:
             raise ValueError('Staged HumanEval input changed: '+relative)
     manifest=load_manifest(root/'data/repos/c'/REPO_NAME,verify_sources=True)
-    check_frozen(root/'data/repos/c'/REPO_NAME,manifest)
+    proof=root/'accepted-prompts.jsonl'
+    check_frozen(root/'data/repos/c'/REPO_NAME,manifest,proof if proof.is_file() else None)
     return suite
 
 def references(workers=4):
@@ -121,7 +167,7 @@ def references(workers=4):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);sub=p.add_subparsers(dest='command',required=True)
-    s=sub.add_parser('prepare');g=s.add_mutually_exclusive_group(required=True);g.add_argument('--corpus',type=Path);g.add_argument('--accepted',type=Path);s.add_argument('--expected',type=Path)
+    s=sub.add_parser('prepare');g=s.add_mutually_exclusive_group(required=True);g.add_argument('--corpus',type=Path);g.add_argument('--accepted',type=Path);s.add_argument('--expected',type=Path,help='Original hash-bound humaneval-c.jsonl; for installed corpora this proves serialization-only differences')
     v=sub.add_parser('verify');v.add_argument('--root',type=Path,default=SUITE)
     v=sub.add_parser('references');v.add_argument('--workers',type=int,default=4)
     a=p.parse_args()
@@ -129,10 +175,10 @@ def main():
         source=a.corpus
         if a.accepted:
             if not a.expected:a.expected=FROZEN_TASKS
-            if sha(a.expected.read_bytes())!=sha(FROZEN_TASKS.read_bytes()):p.error('--expected differs from the bundled frozen prompts/tests')
+            equivalent_tasks(a.expected,FROZEN_TASKS)
             source=DATA_DIR/'humaneval_imported'
             install(a.accepted,a.expected,source)
-        print('Staged HumanEval only:',stage(source),'(161 tasks; 6440 method cells)')
+        print('Staged HumanEval only:',stage(source,expected=a.expected),'(161 tasks; 6440 method cells)')
     elif a.command=='verify':print(json.dumps({'selection_sha256':verify(a.root)['selection_sha256'],'functions':161}))
     else:references(a.workers)
 if __name__=='__main__':main()

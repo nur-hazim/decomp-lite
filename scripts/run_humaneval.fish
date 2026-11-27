@@ -34,8 +34,22 @@ function main
                 echo 'HUMANEVAL_CORPUS must contain humaneval-workload.json.' >&2
                 return 1
             end
+            set -l expected_file "$HUMANEVAL_ROOT/data/multipl_e_preparation/humaneval-c.jsonl"
+            if set -q HUMANEVAL_EXPECTED
+                set expected_file "$HUMANEVAL_EXPECTED"
+                if not test -f "$expected_file"
+                    echo 'HUMANEVAL_EXPECTED does not point to a readable prompt file.' >&2
+                    return 1
+                end
+            end
+            set -l expected_mount
+            set -l expected_args
+            if test -f "$expected_file"
+                set expected_mount -v "$expected_file":/expected.jsonl:ro
+                set expected_args --expected /expected.jsonl
+            end
             docker run --rm --platform linux/amd64 -v "$LITE_ROOT":/work -v "$HUMANEVAL_CORPUS":/source:ro \
-                $LITE_IMAGE python3 -m decomplite.humaneval prepare --corpus /source; or return $status
+                $expected_mount $LITE_IMAGE python3 -m decomplite.humaneval prepare --corpus /source $expected_args; or return $status
         else if set -q HUMANEVAL_ACCEPTED
             set -q HUMANEVAL_EXPECTED; or set -gx HUMANEVAL_EXPECTED "$HUMANEVAL_ROOT/data/multipl_e_preparation/humaneval-c.jsonl"
             if not test -f "$HUMANEVAL_ACCEPTED/corpus-manifest.json"; or not test -f "$HUMANEVAL_EXPECTED"

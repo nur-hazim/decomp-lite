@@ -194,3 +194,53 @@ def test_complete_accepted_export_imports_before_staging(corpus,tmp_path):
     assert install(accepted,H.FROZEN_TASKS,destination)==result
     suite=H.stage(destination,tmp_path/'accepted_suite')
     assert H.verify(suite)['selection']['count']==161
+
+def _reformatted_prompts(corpus,tmp_path):
+    original=H.FROZEN_TASKS.read_bytes()
+    rows=[json.loads(x) for x in original.decode().splitlines() if x.strip()]
+    path=tmp_path/'accepted-original.jsonl'
+    # Different row/key order, compact JSON and CRLF: all decoded content identical.
+    data=('\r\n'.join(json.dumps(row,sort_keys=True,separators=(',',':'),ensure_ascii=True) for row in reversed(rows))+'\r\n').encode()
+    assert H.sha(data)!=H.sha(original)
+    path.write_bytes(data)
+    manifest_path=corpus/H.MANIFEST;manifest=json.loads(manifest_path.read_text())
+    manifest['prompts_sha256']=H.sha(data);manifest_path.write_text(json.dumps(manifest))
+    return path
+
+def test_serialization_only_difference_is_proven_and_retained(corpus,tmp_path):
+    expected=_reformatted_prompts(corpus,tmp_path)
+    staged=H.stage(corpus,tmp_path/'reformatted_suite',expected=expected)
+    assert (staged/'accepted-prompts.jsonl').read_bytes()==expected.read_bytes()
+    validation=json.loads((staged/'prompt_validation.json').read_text())
+    assert validation['raw_hash_matches'] is False
+    assert H.verify(staged)['selection']['count']==161
+    # Offline verification does not depend on the original external prompt path.
+    expected.unlink()
+    H.verify(staged)
+
+def test_mismatch_without_bound_prompt_file_is_not_bypassed(corpus,tmp_path):
+    expected=_reformatted_prompts(corpus,tmp_path)
+    with pytest.raises(ValueError,match='Supply --expected'):
+        H.stage(corpus,tmp_path/'no_proof')
+    wrong=tmp_path/'wrong.jsonl';wrong.write_bytes(H.FROZEN_TASKS.read_bytes())
+    with pytest.raises(ValueError,match='does not match corpus prompts_sha256'):
+        H.stage(corpus,tmp_path/'wrong_proof',expected=wrong)
+    assert not (tmp_path/'no_proof').exists()
+
+@pytest.mark.parametrize('field',['prompt','tests','language'])
+def test_real_record_changes_are_rejected_even_with_matching_manifest_hash(corpus,tmp_path,field):
+    expected=_reformatted_prompts(corpus,tmp_path)
+    rows=[json.loads(x) for x in expected.read_text().splitlines()]
+    rows[0][field]+=' CHANGED'
+    expected.write_text('\n'.join(map(json.dumps,rows))+'\n')
+    p=corpus/H.MANIFEST;manifest=json.loads(p.read_text());manifest['prompts_sha256']=H.sha(expected.read_bytes());p.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError,match='content change'):
+        H.stage(corpus,tmp_path/'changed',expected=expected)
+    assert not (tmp_path/'changed').exists()
+
+def test_duplicate_task_records_rejected(corpus,tmp_path):
+    expected=_reformatted_prompts(corpus,tmp_path)
+    rows=expected.read_text().splitlines();rows[1]=rows[0]
+    expected.write_text('\n'.join(rows)+'\n')
+    with pytest.raises(ValueError,match='Duplicate task ID'):
+        H.equivalent_tasks(expected,H.FROZEN_TASKS)
